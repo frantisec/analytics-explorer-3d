@@ -1,18 +1,16 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { WebcamClient, WebEyeTrackProxy, type GazeResult } from 'webeyetrack';
 import { useStore } from '../stores/store';
-
-const VIDEO_ELEMENT_ID = 'eye-tracking-video';
 
 export interface UseEyeTrackingReturn {
   gaze: { x: number; y: number } | null;
   isReady: boolean;
   isError: boolean;
   errorMessage: string | null;
-  videoElementId: string;
   start: () => Promise<boolean>;
   stop: () => void;
 }
+
+const GAZE_EMA_FACTOR = 0.15;
 
 export function useEyeTracking(): UseEyeTrackingReturn {
   const [gaze, setGaze] = useState<{ x: number; y: number } | null>(null);
@@ -20,52 +18,52 @@ export function useEyeTracking(): UseEyeTrackingReturn {
   const [isError, setIsError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const startedRef = useRef(false);
-  const webcamClientRef = useRef<WebcamClient | null>(null);
-  const proxyRef = useRef<WebEyeTrackProxy | null>(null);
+  const smoothedRef = useRef<{ x: number; y: number } | null>(null);
   const setGazePosition = useStore((s) => s.setGazePosition);
 
   const start = useCallback(async (): Promise<boolean> => {
     if (startedRef.current) return true;
 
-    const videoEl = document.getElementById(VIDEO_ELEMENT_ID) as HTMLVideoElement | null;
-    if (!videoEl) {
-      setIsError(true);
-      setErrorMessage('Video element pro kameru nenalezen.');
-      return false;
-    }
-
     try {
       setErrorMessage(null);
       setIsError(false);
 
-      const webcamClient = new WebcamClient(VIDEO_ELEMENT_ID);
-      const proxy = new WebEyeTrackProxy(webcamClient);
+      webgazer.params.showVideoPreview = false;
+      webgazer.params.showVideo = false;
+      webgazer.params.showFaceOverlay = false;
+      webgazer.params.showFaceFeedbackBox = false;
+      webgazer.params.showGazeDot = false;
+      webgazer.params.faceMeshSolutionPath = '/mediapipe/face_mesh';
+      webgazer.saveDataAcrossSessions(true);
 
-      proxy.onGazeResults = (result: GazeResult) => {
-        if (result.normPog && result.normPog.length >= 2) {
-          const x = (result.normPog[0] + 0.5) * window.innerWidth;
-          const y = (result.normPog[1] + 0.5) * window.innerHeight;
-          const pos = { x, y };
-          setGaze(pos);
-          setGazePosition(pos);
+      webgazer.setGazeListener((data: { x: number; y: number } | null) => {
+        if (data && data.x != null && data.y != null) {
+          const prev = smoothedRef.current;
+          const smoothed = prev
+            ? {
+                x: prev.x + (data.x - prev.x) * GAZE_EMA_FACTOR,
+                y: prev.y + (data.y - prev.y) * GAZE_EMA_FACTOR,
+              }
+            : { x: data.x, y: data.y };
+          smoothedRef.current = smoothed;
+          setGaze(smoothed);
+          setGazePosition(smoothed);
         } else {
           setGaze(null);
           setGazePosition(null);
         }
-      };
+      });
 
-      await webcamClient.startWebcam();
+      await webgazer.begin();
 
-      webcamClientRef.current = webcamClient;
-      proxyRef.current = proxy;
       startedRef.current = true;
       setIsReady(true);
       return true;
     } catch (err) {
-      console.error('WebEyeTrack start error:', err);
+      console.error('WebGazer start error:', err);
       setIsError(true);
       setErrorMessage(
-        err instanceof Error ? err.message : 'Chyba při spuštění eye-trackingu. Povolte přístup ke kameře.'
+        err instanceof Error ? err.message : 'Chyba při spuštění eye-trackingu. Povolte přístup ke kameře.',
       );
       return false;
     }
@@ -75,14 +73,14 @@ export function useEyeTracking(): UseEyeTrackingReturn {
     if (!startedRef.current) return;
 
     try {
-      webcamClientRef.current?.stopWebcam();
+      webgazer.clearGazeListener();
+      webgazer.pause();
     } catch {
       // ignore
     }
-    webcamClientRef.current = null;
-    proxyRef.current = null;
     setGaze(null);
     setGazePosition(null);
+    smoothedRef.current = null;
     startedRef.current = false;
     setIsReady(false);
   }, [setGazePosition]);
@@ -98,7 +96,6 @@ export function useEyeTracking(): UseEyeTrackingReturn {
     isReady,
     isError,
     errorMessage,
-    videoElementId: VIDEO_ELEMENT_ID,
     start,
     stop,
   };

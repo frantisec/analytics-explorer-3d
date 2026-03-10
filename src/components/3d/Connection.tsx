@@ -43,6 +43,9 @@ export const Connection = ({ fromId, toId, strength }: ConnectionProps) => {
   const isConnectionActive = useStore((s) => s.isConnectionActive);
   const showAnomaliesOnly = useStore((s) => s.showAnomaliesOnly);
   const setHoveredConnection = useStore((s) => s.setHoveredConnection);
+  const eyeTrackingEnabled = useStore((s) => s.eyeTrackingEnabled);
+
+  const GAZE_POS_MULTIPLIER = 1.5;
 
   const fromMetric = metrics.find((m) => m.id === fromId);
   const toMetric = metrics.find((m) => m.id === toId);
@@ -54,8 +57,9 @@ export const Connection = ({ fromId, toId, strength }: ConnectionProps) => {
 
   if (!fromMetric || !toMetric) return null;
 
-  const [sx, sy, sz] = fromMetric.position;
-  const [ex, ey, ez] = toMetric.position;
+  const pm = eyeTrackingEnabled ? GAZE_POS_MULTIPLIER : 1;
+  const [sx, sy, sz] = [fromMetric.position[0] * pm, fromMetric.position[1] * pm, fromMetric.position[2] * pm];
+  const [ex, ey, ez] = [toMetric.position[0] * pm, toMetric.position[1] * pm, toMetric.position[2] * pm];
   const mx = (sx + ex) / 2 + (sy - ey) * 0.15;
   const my = (sy + ey) / 2 + (sz - ez) * 0.1;
   const mz = (sz + ez) / 2 + (sx - ex) * 0.1;

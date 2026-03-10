@@ -34,6 +34,9 @@ export const Star = ({ metric, onSelect }: StarProps) => {
   const setHoveredMetric = useStore((s) => s.setHoveredMetric);
   const setHoveredScreenPosition = useStore((s) => s.setHoveredScreenPosition);
   const showAnomaliesOnly = useStore((s) => s.showAnomaliesOnly);
+  const eyeTrackingEnabled = useStore((s) => s.eyeTrackingEnabled);
+
+  const GAZE_POS_MULTIPLIER = 1.5;
 
   const isSelected = selectedMetricId === metric.id;
   const isHoveredByGaze = hoveredMetricId === metric.id;
@@ -61,7 +64,9 @@ export const Star = ({ metric, onSelect }: StarProps) => {
 
   const logVal = Math.log10(metric.value + 1);
   const normalizedValue = Math.min(Math.max((logVal - 0.4) / 4.7, 0), 1);
-  let baseScale = 0.25 + normalizedValue * 0.35;
+  let baseScale = eyeTrackingEnabled
+    ? 0.5 + normalizedValue * 0.5
+    : 0.25 + normalizedValue * 0.35;
   if (metric.isAnomaly) baseScale += 0.1;
 
   useFrame((state) => {
@@ -140,8 +145,12 @@ export const Star = ({ metric, onSelect }: StarProps) => {
 
   const categoryColor = CATEGORY_COLORS[metric.category];
 
+  const renderPosition: [number, number, number] = eyeTrackingEnabled
+    ? [metric.position[0] * GAZE_POS_MULTIPLIER, metric.position[1] * GAZE_POS_MULTIPLIER, metric.position[2] * GAZE_POS_MULTIPLIER]
+    : metric.position;
+
   return (
-    <group position={metric.position}>
+    <group position={renderPosition}>
       {/* Highlight ring for related stars */}
       <mesh ref={highlightRingRef}>
         <ringGeometry args={[0.85, 1, 32]} />

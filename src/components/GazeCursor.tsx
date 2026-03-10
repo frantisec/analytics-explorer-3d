@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useStore } from '../stores/store';
 
-const SMOOTHING = 0.18;
+const SMOOTHING = 0.25;
 
 export function GazeCursor() {
   const eyeTrackingEnabled = useStore((s) => s.eyeTrackingEnabled);

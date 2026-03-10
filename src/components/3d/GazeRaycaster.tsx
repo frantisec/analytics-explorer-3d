@@ -2,18 +2,21 @@ import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../../stores/store';
+import { metrics } from '../../data/mockData';
 
-const DWELL_MS = 800;
-const CONNECTION_HOVER_THRESHOLD_MS = 300;
+const DWELL_MS = 1200;
+const SNAP_RADIUS_PX = 150;
+const STICKY_MS = 400;
+const GAZE_POS_MULTIPLIER = 1.5;
+
+const _projected = new THREE.Vector3();
 
 export function GazeRaycaster() {
-  const { camera, scene, size } = useThree();
-  const raycaster = useRef(new THREE.Raycaster());
-  const mouse = useRef(new THREE.Vector2());
+  const { camera, size } = useThree();
+
   const dwellStartRef = useRef<number | null>(null);
   const lastMetricIdRef = useRef<string | null>(null);
-  const connHoverStartRef = useRef<number | null>(null);
-  const lastConnRef = useRef<{ from: string; to: string } | null>(null);
+  const stickyLeaveTimeRef = useRef<number | null>(null);
 
   const gazePosition = useStore((s) => s.gazePosition);
   const eyeTrackingEnabled = useStore((s) => s.eyeTrackingEnabled);
@@ -31,86 +34,91 @@ export function GazeRaycaster() {
       setHoveredConnection(null);
       dwellStartRef.current = null;
       lastMetricIdRef.current = null;
-      connHoverStartRef.current = null;
-      lastConnRef.current = null;
+      stickyLeaveTimeRef.current = null;
       return;
     }
 
-    mouse.current.x = (gazePosition.x / window.innerWidth) * 2 - 1;
-    mouse.current.y = -(gazePosition.y / window.innerHeight) * 2 + 1;
+    const gx = gazePosition.x;
+    const gy = gazePosition.y;
 
-    raycaster.current.setFromCamera(mouse.current, camera);
-    const intersects = raycaster.current.intersectObjects(scene.children, true);
+    let nearestId: string | null = null;
+    let nearestDist = Infinity;
+    let nearestScreenX = 0;
+    let nearestScreenY = 0;
 
-    const starIntersect = intersects.find((i) => i.object.userData?.metricId != null);
-    const connIntersect = intersects.find(
-      (i) => i.object.userData?.connectionFrom != null && i.object.userData?.connectionTo != null,
-    );
+    for (const m of metrics) {
+      const pm = GAZE_POS_MULTIPLIER;
+      _projected.set(m.position[0] * pm, m.position[1] * pm, m.position[2] * pm);
+      _projected.project(camera);
 
-    const metricId = starIntersect ? (starIntersect.object.userData.metricId as string) : null;
+      const sx = (_projected.x * 0.5 + 0.5) * size.width;
+      const sy = (-_projected.y * 0.5 + 0.5) * size.height;
 
-    if (metricId) {
-      setHoveredMetric(metricId);
+      const dx = gx - sx;
+      const dy = gy - sy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-      const worldPos = new THREE.Vector3();
-      starIntersect!.object.getWorldPosition(worldPos);
-      const projected = worldPos.clone().project(camera);
-      const sx = (projected.x * 0.5 + 0.5) * size.width;
-      const sy = (-projected.y * 0.5 + 0.5) * size.height;
-      setHoveredScreenPosition({ x: sx, y: sy });
+      if (dist < nearestDist && dist < SNAP_RADIUS_PX) {
+        nearestDist = dist;
+        nearestId = m.id;
+        nearestScreenX = sx;
+        nearestScreenY = sy;
+      }
+    }
 
-      setHoveredConnection(null);
-      connHoverStartRef.current = null;
-      lastConnRef.current = null;
+    const now = performance.now();
+    const lastId = lastMetricIdRef.current;
 
-      const now = performance.now();
-      if (metricId === lastMetricIdRef.current) {
+    if (nearestId) {
+      stickyLeaveTimeRef.current = null;
+
+      if (nearestId === lastId) {
         if (dwellStartRef.current === null) {
           dwellStartRef.current = now;
         } else {
           const elapsed = now - dwellStartRef.current;
           setGazeDwellProgress(Math.min(elapsed / DWELL_MS, 1));
           if (elapsed >= DWELL_MS) {
-            setSelectedMetric(metricId);
+            setSelectedMetric(nearestId);
             setGazeDwellProgress(0);
             dwellStartRef.current = null;
             lastMetricIdRef.current = null;
+            setHoveredMetric(null);
+            setHoveredScreenPosition(null);
+            return;
           }
         }
       } else {
         dwellStartRef.current = now;
-        lastMetricIdRef.current = metricId;
+        lastMetricIdRef.current = nearestId;
         setGazeDwellProgress(0);
       }
-    } else if (connIntersect) {
+
+      setHoveredMetric(nearestId);
+      setHoveredScreenPosition({ x: nearestScreenX, y: nearestScreenY });
+      setHoveredConnection(null);
+    } else if (lastId) {
+      if (stickyLeaveTimeRef.current === null) {
+        stickyLeaveTimeRef.current = now;
+      }
+
+      if (now - stickyLeaveTimeRef.current < STICKY_MS) {
+        // Grace period: keep the current hover/dwell alive
+        return;
+      }
+
+      stickyLeaveTimeRef.current = null;
+      lastMetricIdRef.current = null;
+      dwellStartRef.current = null;
       setHoveredMetric(null);
       setHoveredScreenPosition(null);
       setGazeDwellProgress(0);
-      dwellStartRef.current = null;
-      lastMetricIdRef.current = null;
-
-      const from = connIntersect.object.userData.connectionFrom as string;
-      const to = connIntersect.object.userData.connectionTo as string;
-      const now = performance.now();
-
-      if (lastConnRef.current?.from === from && lastConnRef.current?.to === to) {
-        if (connHoverStartRef.current !== null && now - connHoverStartRef.current >= CONNECTION_HOVER_THRESHOLD_MS) {
-          setHoveredConnection({ from, to });
-        }
-      } else {
-        lastConnRef.current = { from, to };
-        connHoverStartRef.current = now;
-        setHoveredConnection(null);
-      }
+      setHoveredConnection(null);
     } else {
       setHoveredMetric(null);
       setHoveredScreenPosition(null);
       setGazeDwellProgress(0);
       setHoveredConnection(null);
-      dwellStartRef.current = null;
-      lastMetricIdRef.current = null;
-      connHoverStartRef.current = null;
-      lastConnRef.current = null;
     }
   });
 

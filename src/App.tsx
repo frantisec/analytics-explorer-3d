@@ -18,7 +18,7 @@ export default function App() {
   const eyeTrackingEnabled = useStore(state => state.eyeTrackingEnabled);
   const setEyeTrackingEnabled = useStore(state => state.setEyeTrackingEnabled);
 
-  const { start, stop, isError, errorMessage, videoElementId } = useEyeTracking();
+  const { start, stop, isError, errorMessage } = useEyeTracking();
 
   const handleEnableEyeTracking = async () => {
     const success = await start();
@@ -48,17 +48,6 @@ export default function App() {
 
   return (
     <div className="w-full h-screen bg-[#0a0a0f] relative overflow-hidden text-white font-sans">
-
-      <video
-        id={videoElementId}
-        autoPlay
-        playsInline
-        muted
-        width={320}
-        height={240}
-        className="fixed opacity-0 pointer-events-none"
-        style={{ left: -9999, top: 0, zIndex: -1 }}
-      />
 
       <div className="absolute inset-0 z-0 cursor-crosshair">
         <Canvas
@@ -151,7 +140,7 @@ export default function App() {
           </div>
           {eyeTrackingEnabled && (
             <div className="mt-2 pt-3 border-t border-white/10 text-sm text-emerald-400/90 flex items-center gap-2">
-              Pohled na hvězdu 800 ms = výběr
+              Pohled na hvězdu 1200 ms = výběr
             </div>
           )}
         </div>
